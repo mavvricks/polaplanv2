@@ -1,0 +1,25 @@
+{
+  "name": "paupau-ganda",
+  "version": "1.0.0",
+  "description": "",
+  "main": "AppsScript.js",
+  "scripts": {
+    "start": "live-server --host=127.0.0.1 --port=5500 --no-browser",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JDADonato/UCANDOIT.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/JDADonato/UCANDOIT/issues"
+  },
+  "homepage": "https://github.com/JDADonato/UCANDOIT#readme",
+  "dependencies": {
+    "live-server": "^1.2.2"
+  }
+}

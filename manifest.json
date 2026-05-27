@@ -1,0 +1,22 @@
+{
+  "name": "POLA PLANNER | Academic To-Do",
+  "short_name": "POLA PLANNER",
+  "description": "Premium Academic Task and Deadline Tracker",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8fbff",
+  "theme_color": "#14b8a6",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
