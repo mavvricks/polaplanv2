@@ -8,9 +8,11 @@
 
 // --- Google Sheets Sync ---
 // PASTE YOUR DEPLOYED APPS SCRIPT WEB APP URL BELOW:
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxg25q8ED9qFbNMNQE9BvfujISWIaa5P1yu6M3JTs3xxS6ME9ztIqv83ZskuilWC9DO-w/exec'
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxg25q8ED9qFbNMNQE9BvfujISWIaa5P1yu6M3JTs3xxS6ME9ztIqv83ZskuilWC9DO-w/exec';
 
 const SheetsSync = {
+    lastError: null,
+
     isEnabled() {
         return APPS_SCRIPT_URL && APPS_SCRIPT_URL.length > 10;
     },
@@ -18,41 +20,59 @@ const SheetsSync = {
     async pull() {
         if (!this.isEnabled()) return null;
         try {
-            const res = await fetch(APPS_SCRIPT_URL + '?action=getAll');
+            const res = await fetch(`${APPS_SCRIPT_URL}?action=getAll&_=${Date.now()}`, {
+                method: 'GET',
+                cache: 'no-store'
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const json = await res.json();
+            if (!json.success) throw new Error(json.error || 'Unknown Apps Script error');
+            this.lastError = null;
             if (json.success) return json.data;
         } catch (e) {
+            this.lastError = e.message || String(e);
             console.warn('Sheets pull failed:', e);
         }
         return null;
     },
 
     async pushAll(tasks, subjects) {
-        if (!this.isEnabled()) return;
-        try {
-            await fetch(APPS_SCRIPT_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify({ action: 'syncAll', tasks, subjects })
-            });
-        } catch (e) {
-            console.warn('Sheets push failed:', e);
-        }
+        return this.post({ action: 'syncAll', tasks, subjects });
     },
 
     async post(payload) {
-        if (!this.isEnabled()) return;
+        if (!this.isEnabled()) return false;
         try {
-            await fetch(APPS_SCRIPT_URL, {
+            const res = await fetch(APPS_SCRIPT_URL, {
                 method: 'POST',
-                headers: { 'Content-Type': 'text/plain' },
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify(payload)
             });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+            const text = await res.text();
+            const json = text ? JSON.parse(text) : {};
+            if (!json.success) throw new Error(json.error || 'Unknown Apps Script error');
+
+            this.lastError = null;
+            return true;
         } catch (e) {
+            this.lastError = e.message || String(e);
             console.warn('Sheets post failed:', e);
+            return false;
         }
     }
 };
+
+function queueSheetWrite(writePromise) {
+    if (!SheetsSync.isEnabled()) return;
+
+    Promise.resolve(writePromise).then((ok) => {
+        if (!ok) {
+            showToast('Saved locally, but Google Sheets did not update. Check Apps Script deployment.', 'error');
+        }
+    });
+}
 
 class StateManager {
     constructor() {
@@ -78,7 +98,7 @@ class StateManager {
         task.completed = false;
         this.tasks.push(task);
         this.saveTasks();
-        SheetsSync.post({ action: 'addTask', task });
+        queueSheetWrite(SheetsSync.post({ action: 'addTask', task }));
         return task;
     }
 
@@ -87,14 +107,14 @@ class StateManager {
         if (index !== -1) {
             this.tasks[index] = updatedTask;
             this.saveTasks();
-            SheetsSync.post({ action: 'updateTask', task: updatedTask });
+            queueSheetWrite(SheetsSync.post({ action: 'updateTask', task: updatedTask }));
         }
     }
 
     deleteTask(id) {
         this.tasks = this.tasks.filter(t => t.id !== id);
         this.saveTasks();
-        SheetsSync.post({ action: 'deleteTask', taskId: id });
+        queueSheetWrite(SheetsSync.post({ action: 'deleteTask', taskId: id }));
     }
 
     addSubject(name, color) {
@@ -105,7 +125,7 @@ class StateManager {
         };
         this.subjects.push(newSub);
         this.saveSubjects();
-        SheetsSync.post({ action: 'addSubject', subject: newSub });
+        queueSheetWrite(SheetsSync.post({ action: 'addSubject', subject: newSub }));
         return newSub;
     }
 
@@ -115,7 +135,7 @@ class StateManager {
 
     // Full sync: push everything to Google Sheets
     async syncToSheets() {
-        await SheetsSync.pushAll(this.tasks, this.subjects);
+        return SheetsSync.pushAll(this.tasks, this.subjects);
     }
 
     // Pull from Google Sheets and overwrite local
@@ -238,7 +258,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const pulled = await Store.syncFromSheets();
         if (!pulled) {
             // Sheet is empty or unreachable — push local data up
-            await Store.syncToSheets();
+            showToast('Could not load Google Sheets. Showing local data for now.', 'error');
         }
     }
 
@@ -376,8 +396,14 @@ function setupEventListeners() {
             syncBtn.style.animation = 'spin 1s linear infinite';
             showToast('Syncing with Google Sheets...', 'success');
             try {
-                await Store.syncToSheets();
-                showToast('Synced to Google Sheets!', 'success');
+                const pulled = await Store.syncFromSheets();
+                if (!pulled) {
+                    showToast('Sync failed. Check the Apps Script deployment.', 'error');
+                } else {
+                    populateSubjectDropdowns();
+                    renderAll();
+                    showToast('Loaded latest data from Google Sheets!', 'success');
+                }
             } catch (e) {
                 showToast('Sync failed', 'error');
             }
@@ -671,6 +697,7 @@ function setupEventListeners() {
                 }
 
                 Store.saveTasks();
+                queueSheetWrite(Store.syncToSheets());
                 renderAll();
             }
         }
@@ -740,6 +767,7 @@ function setupEventListeners() {
                 }
                 
                 Store.saveTasks();
+                queueSheetWrite(Store.syncToSheets());
                 renderAll();
             }
         }
@@ -1593,6 +1621,7 @@ window.saveSubjectEdits = function(subId) {
         Store.subjects[subjectIndex].name = newName;
         Store.subjects[subjectIndex].color = newColor;
         Store.saveSubjects();
+        queueSheetWrite(SheetsSync.post({ action: 'updateSubject', subject: Store.subjects[subjectIndex] }));
         
         populateSubjectDropdowns();
         renderAll();
@@ -1620,7 +1649,7 @@ window.executeSubjectDeletion = function(subId) {
     Store.saveSubjects();
     
     // 3. Remove the subject from Google Sheets
-    SheetsSync.post({ action: 'deleteSubject', subjectId: subId });
+    queueSheetWrite(SheetsSync.post({ action: 'deleteSubject', subjectId: subId }));
     
     // 4. Update the UI
     populateSubjectDropdowns();
